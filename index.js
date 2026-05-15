@@ -234,6 +234,15 @@ document.getElementById('dateInit').value=s.toISOString().split('T')[0];
 </body>
 </html>`);
 });
-
+app.post("/debug", async (req, res) => {
+  const { companyId, dateInit, dateEnd } = req.body;
+  const response = await fetch("https://control.asksuite.com/api/leads", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-API-Key": ASKSUITE_API_KEY },
+    body: JSON.stringify({ companiesIds: [companyId], pageNumber: 1, pageSize: 5, dateInit, dateEnd }),
+  });
+  const text = await response.text();
+  res.send(`Status: ${response.status}\n\n${text}`);
+});
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
