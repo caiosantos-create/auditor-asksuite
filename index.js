@@ -18,6 +18,26 @@ const CRITERIOS = `
 
 app.get("/health", (req, res) => res.json({ status: "ok" }));
 
+app.get("/debug", async (req, res) => {
+  try {
+    const response = await fetch("https://control.asksuite.com/api/leads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-API-Key": ASKSUITE_API_KEY },
+      body: JSON.stringify({
+        companiesIds: ["porto-de-galinhas-praia-hotel"],
+        pageNumber: 1,
+        pageSize: 5,
+        dateInit: "2026-01-01",
+        dateEnd: "2026-05-14"
+      }),
+    });
+    const text = await response.text();
+    res.send(`<pre>Status: ${response.status}\n\n${text}</pre>`);
+  } catch(e) {
+    res.send(`<pre>Erro: ${e.message}</pre>`);
+  }
+});
+
 app.post("/buscar", async (req, res) => {
   const { companyId, dateInit, dateEnd, pageNumber, pageSize } = req.body;
   try {
@@ -110,7 +130,6 @@ input{width:100%;border:1px solid #ddd;border-radius:8px;padding:8px 10px;font-s
 .prog-fill{height:100%;border-radius:3px;background:#16a34a;transition:width 0.4s}
 .prog-title{font-size:14px;font-weight:600}
 .prog-info{font-size:12px;color:#666}
-.empty{text-align:center;padding:40px;color:#666;font-size:14px}
 </style>
 </head>
 <body>
@@ -121,128 +140,8 @@ input{width:100%;border:1px solid #ddd;border-radius:8px;padding:8px 10px;font-s
   </div>
   <span class="tag">Servidor online</span>
 </div>
-
 <div class="container">
   <div class="card">
     <h2>Parâmetros de busca</h2>
     <label>Company ID</label>
-    <input type="text" id="companyId" value="porto-de-galinhas-praia-hotel" style="margin-bottom:12px">
-    <div class="form-row">
-      <div><label>Data início</label><input type="date" id="dateInit"></div>
-      <div><label>Data fim</label><input type="date" id="dateEnd"></div>
-    </div>
-    <div class="form-row">
-      <div><label>Conversas por página</label><input type="number" id="pageSize" value="20"></div>
-      <div><label>Página</label><input type="number" id="pageNumber" value="1"></div>
-    </div>
-    <button class="btn" id="btn" onclick="rodar()">Buscar e auditar</button>
-  </div>
-
-  <div id="progresso" style="display:none" class="prog-wrap">
-    <div class="prog-title" id="prog-title">Buscando...</div>
-    <div class="prog-bar"><div class="prog-fill" id="prog-fill" style="width:0%"></div></div>
-    <div class="prog-info" id="prog-info">Conectando</div>
-  </div>
-
-  <div id="metrics" style="display:none" class="metrics">
-    <div class="metric"><div class="metric-label">Auditadas</div><div class="metric-val blue" id="m-total">0</div></div>
-    <div class="metric"><div class="metric-label">Convertidas</div><div class="metric-val green" id="m-conv">—</div></div>
-    <div class="metric"><div class="metric-label">Score médio</div><div class="metric-val amber" id="m-score">—</div></div>
-    <div class="metric"><div class="metric-label">Críticas</div><div class="metric-val red" id="m-crit">0</div></div>
-  </div>
-
-  <div id="lista"></div>
-</div>
-
-<script>
-const auditorias = [];
-function cor(v){return v>=75?'#16a34a':v>=50?'#d97706':'#dc2626'}
-function setP(pct,t,i){
-  document.getElementById('prog-fill').style.width=pct+'%';
-  document.getElementById('prog-title').textContent=t;
-  document.getElementById('prog-info').textContent=i;
-}
-
-function updateUI(){
-  const n = auditorias.length;
-  if(!n) return;
-  document.getElementById('metrics').style.display='grid';
-  const conv = auditorias.filter(a=>a.conversao==='Sim').length;
-  document.getElementById('m-total').textContent=n;
-  document.getElementById('m-conv').textContent=Math.round(conv/n*100)+'%';
-  document.getElementById('m-score').textContent=Math.round(auditorias.reduce((s,a)=>s+a.scoreGeral,0)/n)+'/100';
-  document.getElementById('m-crit').textContent=auditorias.filter(a=>a.scoreGeral<50).length;
-  document.getElementById('lista').innerHTML = auditorias.map(a=>{
-    const cb=a.conversao==='Sim'?'b-green':a.conversao==='Parcial'?'b-amber':'b-red';
-    const ct=a.conversao==='Sim'?'Convertido':a.conversao==='Parcial'?'Parcial':'Não convertido';
-    return \`<div class="conv-card">
-      <div class="conv-header">
-        <div>
-          <strong style="font-size:14px">\${a.meta?.nome||'Cliente'}\${a.meta?.atendente?' · '+a.meta.atendente:''}</strong>
-          <div style="font-size:12px;color:#666;margin-top:2px">\${a.meta?.plataforma||''} · \${a.meta?.data||''}</div>
-        </div>
-        <div style="display:flex;gap:6px;align-items:center">
-          <span class="badge \${cb}">\${ct}</span>
-          <span style="font-size:18px;font-weight:600;color:\${cor(a.scoreGeral)}">\${a.scoreGeral}/100</span>
-        </div>
-      </div>
-      <div class="scores">\${(a.scores||[]).map(s=>\`<span>\${s.nome}: <strong style="color:\${cor(s.val)}">\${s.val}</strong></span>\`).join('')}</div>
-      <div class="resumo">\${a.resumo||''}</div>
-    </div>\`;
-  }).join('');
-}
-
-async function rodar(){
-  const companyId = document.getElementById('companyId').value.trim();
-  const dateInit = document.getElementById('dateInit').value;
-  const dateEnd = document.getElementById('dateEnd').value;
-  const pageSize = parseInt(document.getElementById('pageSize').value)||20;
-  const pageNumber = parseInt(document.getElementById('pageNumber').value)||1;
-  if(!companyId||!dateInit||!dateEnd){alert('Preencha todos os campos.');return;}
-  const btn = document.getElementById('btn');
-  btn.disabled=true;btn.textContent='Processando...';
-  document.getElementById('progresso').style.display='block';
-  setP(10,'Conectando à Asksuite...','Buscando conversas do período');
-  try{
-    const r = await fetch('/buscar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({companyId,dateInit,dateEnd,pageNumber,pageSize})});
-    const data = await r.json();
-    const leads = data.list||[];
-    if(!leads.length){setP(100,'Nenhuma conversa encontrada','Tente ajustar o período');btn.disabled=false;btn.textContent='Buscar e auditar';return;}
-    setP(30,leads.length+' conversas encontradas!','Iniciando auditoria com IA...');
-    auditorias.length=0;
-    for(let i=0;i<leads.length;i++){
-      setP(Math.round(30+(i/leads.length)*65),'Auditando '+(i+1)+' de '+leads.length+'...','Lead: '+(leads[i].name||leads[i].id));
-      try{
-        const ar = await fetch('/auditar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lead:leads[i]})});
-        const resultado = await ar.json();
-        resultado.meta={nome:leads[i].name||'Cliente',atendente:leads[i].attendant||null,plataforma:leads[i].platform||leads[i].source||'WhatsApp',data:leads[i].updatedAt?new Date(leads[i].updatedAt).toLocaleDateString('pt-BR'):''};
-        auditorias.push(resultado);
-        updateUI();
-      }catch(e){console.error(e);}
-      await new Promise(r=>setTimeout(r,200));
-    }
-    setP(100,'Auditoria concluída! '+auditorias.length+' conversas analisadas','');
-  }catch(e){setP(0,'Erro: '+e.message,'');}
-  btn.disabled=false;btn.textContent='Buscar e auditar';
-}
-
-const hoje = new Date();
-const s = new Date(hoje);s.setDate(hoje.getDate()-7);
-document.getElementById('dateEnd').value=hoje.toISOString().split('T')[0];
-document.getElementById('dateInit').value=s.toISOString().split('T')[0];
-</script>
-</body>
-</html>`);
-});
-app.post("/debug", async (req, res) => {
-  const { companyId, dateInit, dateEnd } = req.body;
-  const response = await fetch("https://control.asksuite.com/api/leads", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-API-Key": ASKSUITE_API_KEY },
-    body: JSON.stringify({ companiesIds: [companyId], pageNumber: 1, pageSize: 5, dateInit, dateEnd }),
-  });
-  const text = await response.text();
-  res.send(`Status: ${response.status}\n\n${text}`);
-});
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
+    <input type="text" id=
