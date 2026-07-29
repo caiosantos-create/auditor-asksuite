@@ -82,7 +82,7 @@ app.post("/ghl/conversas", async function(req, res) {
   try {
     var locationId = req.body.locationId;
     var limit = req.body.limit || 20;
-    var url = "https://services.leadconnectorhq.com/conversations/search?locationId=" + locationId + "&limit=" + limit + "&type=TYPE_WHATSAPP";
+    var url = "https://services.leadconnectorhq.com/conversations/search?locationId=" + locationId + "&limit=" + limit;
     if (req.body.startDate) url += "&startDate=" + req.body.startDate;
     if (req.body.endDate) url += "&endDate=" + req.body.endDate;
     var response = await fetch(url, {
