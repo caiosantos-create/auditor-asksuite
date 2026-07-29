@@ -8,17 +8,10 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const ASKSUITE_API_KEY = process.env.ASKSUITE_API_KEY;
 const GHL_API_KEY = process.env.GHL_API_KEY;
 
-const CRITERIOS = [
-  "Cordialidade e saudacao (15%): usou nome, foi educado, tom profissional",
-  "Identificacao da necessidade (20%): coletou datas, adultos, criancas",
-  "Oferta de produto adequado (20%): apresentou opcoes com preco e beneficios",
-  "Tentativa de conversao (25%): fez oferta direta de reserva, criou urgencia",
-  "Tratamento de objecoes (10%): respondeu hesitacoes e contornou duvidas",
-  "Encerramento profissional (10%): agradeceu, disponibilizou contato"
-].join("\n");
+const CRITERIOS = "Cordialidade (15%): foi educado e profissional. Identificacao (20%): coletou datas e hospedes. Oferta (20%): apresentou opcoes com preco. Conversao (25%): tentou fechar reserva. Objecoes (10%): contornou duvidas. Encerramento (10%): agradeceu e se despediu.";
 
 app.get("/health", function(req, res) {
-  res.json({ status: "ok", anthropic_key: ANTHROPIC_API_KEY ? "definida" : "AUSENTE", ghl_key: GHL_API_KEY ? "definida" : "AUSENTE" });
+  res.json({ status: "ok", anthropic_key: ANTHROPIC_API_KEY ? "ok" : "AUSENTE", ghl_key: GHL_API_KEY ? "ok" : "AUSENTE" });
 });
 
 app.get("/testar-anthropic", async function(req, res) {
@@ -48,6 +41,22 @@ app.get("/testar-ghl", async function(req, res) {
   }
 });
 
+app.get("/testar-auditoria", async function(req, res) {
+  try {
+    var prompt = "Voce e auditor hoteleiro. Avalie este atendimento ficticio: Cliente perguntou sobre reserva, atendente respondeu cordialmente e enviou cotacao.\n\nCRITERIOS:\n" + CRITERIOS + "\n\nResponda APENAS em JSON valido sem markdown, sem explicacoes, sem texto antes ou depois: {\"scoreGeral\": 75, \"conversao\": \"Parcial\", \"scores\": [{\"nome\":\"Cordialidade\",\"val\":80},{\"nome\":\"Identificacao\",\"val\":70},{\"nome\":\"Oferta\",\"val\":75},{\"nome\":\"Conversao\",\"val\":65},{\"nome\":\"Objecoes\",\"val\":70},{\"nome\":\"Encerramento\",\"val\":75}], \"resumo\": \"Atendimento adequado com boa cordialidade.\", \"insights\": [{\"tipo\":\"ok\",\"texto\":\"Foi cordial\"},{\"tipo\":\"warn\",\"texto\":\"Poderia ter fechado\"},{\"tipo\":\"bad\",\"texto\":\"Sem follow up\"}]}";
+    var response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 500, messages: [{ role: "user", content: prompt }] })
+    });
+    var data = await response.json();
+    var txt = data.content.map(function(i) { return i.text || ""; }).join("");
+    res.send("<pre>TEXTO BRUTO:\n" + txt + "\n\nPARSE RESULTADO:\n" + JSON.stringify(JSON.parse(txt), null, 2) + "</pre>");
+  } catch(e) {
+    res.send("<pre>Erro: " + e.message + "</pre>");
+  }
+});
+
 app.post("/buscar", async function(req, res) {
   try {
     var response = await fetch("https://control.asksuite.com/api/leads", {
@@ -64,28 +73,18 @@ app.post("/buscar", async function(req, res) {
 
 app.post("/auditar", async function(req, res) {
   var lead = req.body.lead;
-  var descricao = [
-    "Nome: " + (lead.name || "Nao informado"),
-    "Atendente: " + (lead.attendant || "Nao atribuido"),
-    "Tem reserva: " + (lead.hasReservation ? "Sim" : "Nao"),
-    "Solicitou preco: " + (lead.requestPrice ? "Sim" : "Nao"),
-    "Data entrada: " + (lead.arrivalDate || "Nao informada"),
-    "Data saida: " + (lead.departureDate || "Nao informada"),
-    "Adultos: " + (lead.adults || "Nao informado"),
-    "Criancas: " + (lead.children || "Nao informado"),
-    "Etiquetas: " + (lead.tagsString || "Nenhuma")
-  ].join("\n");
-  var prompt = "Voce e especialista em auditoria de atendimento hoteleiro. Avalie este lead.\n\nCRITERIOS:\n" + CRITERIOS + "\n\nDADOS:\n" + descricao + "\n\nResponda APENAS em JSON valido sem markdown: {\"scoreGeral\": 70, \"conversao\": \"Nao\", \"scores\": [{\"nome\":\"Cordialidade\",\"val\":70},{\"nome\":\"Identificacao\",\"val\":70},{\"nome\":\"Oferta\",\"val\":70},{\"nome\":\"Conversao\",\"val\":70},{\"nome\":\"Objecoes\",\"val\":70},{\"nome\":\"Encerramento\",\"val\":70}], \"resumo\": \"texto aqui\", \"insights\": [{\"tipo\":\"ok\",\"texto\":\"texto\"},{\"tipo\":\"warn\",\"texto\":\"texto\"},{\"tipo\":\"bad\",\"texto\":\"texto\"}]}";
+  var descricao = "Nome: " + (lead.name || "?") + ", Reserva: " + (lead.hasReservation ? "Sim" : "Nao") + ", Preco: " + (lead.requestPrice ? "Sim" : "Nao") + ", Entrada: " + (lead.arrivalDate || "?") + ", Saida: " + (lead.departureDate || "?");
+  var prompt = "Audite este lead hoteleiro. CRITERIOS: " + CRITERIOS + " DADOS: " + descricao + " Responda APENAS JSON sem markdown: {\"scoreGeral\":70,\"conversao\":\"Nao\",\"scores\":[{\"nome\":\"Cordialidade\",\"val\":70},{\"nome\":\"Identificacao\",\"val\":70},{\"nome\":\"Oferta\",\"val\":70},{\"nome\":\"Conversao\",\"val\":70},{\"nome\":\"Objecoes\",\"val\":70},{\"nome\":\"Encerramento\",\"val\":70}],\"resumo\":\"texto\",\"insights\":[{\"tipo\":\"ok\",\"texto\":\"ok\"},{\"tipo\":\"warn\",\"texto\":\"warn\"},{\"tipo\":\"bad\",\"texto\":\"bad\"}]}";
   try {
     var response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 800, messages: [{ role: "user", content: prompt }] })
+      body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 500, messages: [{ role: "user", content: prompt }] })
     });
     var data = await response.json();
     if (data.error) { res.status(500).json({ error: data.error.message }); return; }
-    var txt = data.content.map(function(i) { return i.text || ""; }).join("");
-    res.json(JSON.parse(txt.replace(/```json|```/g, "").trim()));
+    var txt = data.content.map(function(i) { return i.text || ""; }).join("").replace(/```json|```/g, "").trim();
+    res.json(JSON.parse(txt));
   } catch(e) {
     res.status(500).json({ error: e.message });
   }
@@ -122,25 +121,19 @@ app.post("/ghl/mensagens", async function(req, res) {
 
 app.post("/ghl/auditar", async function(req, res) {
   var conv = req.body.conversa;
-  var historico = req.body.historico || "Historico nao disponivel";
-  var descricao = [
-    "Contato: " + (conv.contactName || "Nao informado"),
-    "Atendente: " + (conv.assignedTo || "Nao atribuido"),
-    "Canal: WhatsApp",
-    "Status: " + (conv.status || ""),
-    "Ultima mensagem: " + (conv.lastMessageDate ? new Date(conv.lastMessageDate).toLocaleDateString("pt-BR") : "")
-  ].join("\n");
-  var prompt = "Voce e especialista em auditoria de atendimento hoteleiro. Avalie esta conversa de WhatsApp.\n\nCRITERIOS:\n" + CRITERIOS + "\n\nDADOS DO CONTATO:\n" + descricao + "\n\nHISTORICO DA CONVERSA:\n" + historico + "\n\nResponda APENAS em JSON valido sem markdown: {\"scoreGeral\": 70, \"conversao\": \"Nao\", \"scores\": [{\"nome\":\"Cordialidade\",\"val\":70},{\"nome\":\"Identificacao\",\"val\":70},{\"nome\":\"Oferta\",\"val\":70},{\"nome\":\"Conversao\",\"val\":70},{\"nome\":\"Objecoes\",\"val\":70},{\"nome\":\"Encerramento\",\"val\":70}], \"resumo\": \"texto aqui\", \"insights\": [{\"tipo\":\"ok\",\"texto\":\"texto\"},{\"tipo\":\"warn\",\"texto\":\"texto\"},{\"tipo\":\"bad\",\"texto\":\"texto\"}]}";
+  var historico = (req.body.historico || "").substring(0, 1000);
+  var descricao = "Contato: " + (conv.contactName || "?") + ", Atendente: " + (conv.assignedTo || "nenhum") + ", Status: " + (conv.status || "?");
+  var prompt = "Audite esta conversa de WhatsApp hoteleira. CRITERIOS: " + CRITERIOS + " CONTATO: " + descricao + " HISTORICO: " + (historico || "sem historico") + " Responda APENAS JSON sem markdown: {\"scoreGeral\":70,\"conversao\":\"Nao\",\"scores\":[{\"nome\":\"Cordialidade\",\"val\":70},{\"nome\":\"Identificacao\",\"val\":70},{\"nome\":\"Oferta\",\"val\":70},{\"nome\":\"Conversao\",\"val\":70},{\"nome\":\"Objecoes\",\"val\":70},{\"nome\":\"Encerramento\",\"val\":70}],\"resumo\":\"texto\",\"insights\":[{\"tipo\":\"ok\",\"texto\":\"ok\"},{\"tipo\":\"warn\",\"texto\":\"warn\"},{\"tipo\":\"bad\",\"texto\":\"bad\"}]}";
   try {
     var response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 800, messages: [{ role: "user", content: prompt }] })
+      body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 500, messages: [{ role: "user", content: prompt }] })
     });
     var data = await response.json();
     if (data.error) { res.status(500).json({ error: data.error.message }); return; }
-    var txt = data.content.map(function(i) { return i.text || ""; }).join("");
-    res.json(JSON.parse(txt.replace(/```json|```/g, "").trim()));
+    var txt = data.content.map(function(i) { return i.text || ""; }).join("").replace(/```json|```/g, "").trim();
+    res.json(JSON.parse(txt));
   } catch(e) {
     res.status(500).json({ error: e.message });
   }
@@ -156,7 +149,7 @@ app.get("/", function(req, res) {
   html.push('<div class="tabs"><button class="tabBtn active" onclick="switchTab(\'ghl\',this)">BNB Flex (GHL)</button><button class="tabBtn" onclick="switchTab(\'ask\',this)">Westin (Asksuite)</button></div>');
   html.push('<div id="ghl" class="section active"><div class="card"><h2>BNB Flex &mdash; WhatsApp</h2>');
   html.push('<div class="frow"><div><label>Data inicio (opcional)</label><input type="date" id="gDateInit"></div><div><label>Data fim (opcional)</label><input type="date" id="gDateEnd"></div></div>');
-  html.push('<label>Limite de conversas</label><input type="number" id="gLimit" value="20"><button class="btn" id="gBtn" onclick="buscarGHL()">Buscar e auditar</button></div>');
+  html.push('<label>Limite de conversas</label><input type="number" id="gLimit" value="5"><button class="btn" id="gBtn" onclick="buscarGHL()">Buscar e auditar</button></div>');
   html.push('<div id="gProg" style="display:none" class="prog"><div class="ptitle" id="gPT">Buscando...</div><div class="pbar"><div class="pfill" id="gPF" style="width:0%"></div></div><div class="pinfo" id="gPI"></div></div>');
   html.push('<div id="gMetrics" style="display:none" class="metrics"><div class="metric"><div class="mlabel">Auditadas</div><div class="mval blue" id="gT">0</div></div><div class="metric"><div class="mlabel">Convertidas</div><div class="mval green" id="gC">0%</div></div><div class="metric"><div class="mlabel">Score medio</div><div class="mval amber" id="gS">0</div></div><div class="metric"><div class="mlabel">Criticas</div><div class="mval red" id="gCr">0</div></div></div>');
   html.push('<div id="gLista"></div></div>');
@@ -173,9 +166,8 @@ app.get("/", function(req, res) {
   html.push('function switchTab(id,el){document.querySelectorAll(".section").forEach(function(s){s.classList.remove("active");});document.querySelectorAll(".tabBtn").forEach(function(t){t.classList.remove("active");});document.getElementById(id).classList.add("active");el.classList.add("active");}');
   html.push('function setP(p,pct,t,i){document.getElementById(p+"PF").style.width=pct+"%";document.getElementById(p+"PT").textContent=t;document.getElementById(p+"PI").textContent=i;}');
   html.push('function renderLista(auds,p){var n=auds.length;if(!n)return;document.getElementById(p+"Metrics").style.display="grid";var conv=auds.filter(function(a){return a.conversao==="Sim";}).length;document.getElementById(p+"T").textContent=n;document.getElementById(p+"C").textContent=Math.round(conv/n*100)+"%";document.getElementById(p+"S").textContent=Math.round(auds.reduce(function(s,a){return s+(a.scoreGeral||0);},0)/n)+"/100";document.getElementById(p+"Cr").textContent=auds.filter(function(a){return(a.scoreGeral||0)<50;}).length;document.getElementById(p+"Lista").innerHTML=auds.map(function(a){var cb=a.conversao==="Sim"?"bg":a.conversao==="Parcial"?"ba":"br";var ct=a.conversao==="Sim"?"Convertido":a.conversao==="Parcial"?"Parcial":"Nao convertido";return"<div class=\'ccard\'><div class=\'cheader\'><div><strong>"+(a.meta&&a.meta.nome?a.meta.nome:"Contato")+"</strong><div style=\'font-size:12px;color:#666;margin-top:2px\'>"+(a.meta&&a.meta.atendente?a.meta.atendente+" - ":"")+(a.meta&&a.meta.data?a.meta.data:"")+"</div></div><div style=\'display:flex;gap:6px;align-items:center\'><span class=\'badge "+cb+"\'>"+ct+"</span><span style=\'font-size:18px;font-weight:600;color:"+cor(a.scoreGeral||0)+"\'>"+( a.scoreGeral||0)+"/100</span></div></div><div class=\'scores\'>"+(a.scores||[]).map(function(s){return"<span>"+s.nome+": <strong style=\'color:"+cor(s.val)+"\'>"+s.val+"</strong></span>";}).join("")+"</div><div class=\'resumo\'>"+(a.resumo||"")+"</div></div>";}).join("");}');
-  html.push('async function buscarGHL(){var dateInit=document.getElementById("gDateInit").value;var dateEnd=document.getElementById("gDateEnd").value;var limit=parseInt(document.getElementById("gLimit").value)||20;var btn=document.getElementById("gBtn");btn.disabled=true;btn.textContent="Processando...";document.getElementById("gProg").style.display="block";setP("g",10,"Conectando ao GHL...","Buscando conversas");try{var body={locationId:"mhlYful3Ik0RINNWJ6FO",limit:limit};if(dateInit)body.startDate=new Date(dateInit).getTime();if(dateEnd)body.endDate=new Date(dateEnd+"T23:59:59").getTime();var r=await fetch("/ghl/conversas",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});var data=await r.json();console.log("GHL response:",JSON.stringify(data).substring(0,500));var convs=data.conversations||[];if(!convs.length){setP("g",100,"Nenhuma conversa encontrada. Verifique /testar-ghl","");btn.disabled=false;btn.textContent="Buscar e auditar";return;}setP("g",30,convs.length+" conversas encontradas!","Auditando com IA...");gAud=[];for(var i=0;i<convs.length;i++){setP("g",Math.round(30+(i/convs.length)*65),"Auditando "+(i+1)+" de "+convs.length+"...","Contato: "+(convs[i].contactName||convs[i].id));try{var mr=await fetch("/ghl/mensagens",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({conversationId:convs[i].id})});var md=await mr.json();var msgs=(md.messages&&md.messages.messages)||md.messages||[];var historico=msgs.map(function(m){return(m.direction==="inbound"?"Cliente":"Atendente")+": "+(m.body||m.text||"[midia]");}).join("\\n");var ar=await fetch("/ghl/auditar",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({conversa:convs[i],historico:historico})});var resultado=await ar.json();if(resultado.scoreGeral){resultado.meta={nome:convs[i].contactName||"Contato",atendente:convs[i].assignedTo||null,data:convs[i].lastMessageDate?new Date(convs[i].lastMessageDate).toLocaleDateString("pt-BR"):""};gAud.push(resultado);renderLista(gAud,"g");}}catch(e){console.error("Erro auditando",convs[i].id,e);}await new Promise(function(r){setTimeout(r,500);});}setP("g",100,"Auditoria concluida! "+gAud.length+" conversas","");}catch(e){setP("g",0,"Erro: "+e.message,"");console.error(e);}btn.disabled=false;btn.textContent="Buscar e auditar";}');
-  html.push('async function buscarASK(){var dateInit=document.getElementById("aDateInit").value;var dateEnd=document.getElementById("aDateEnd").value;var pageSize=parseInt(document.getElementById("aPageSize").value)||20;var pageNum=parseInt(document.getElementById("aPageNum").value)||1;var btn=document.getElementById("aBtn");btn.disabled=true;btn.textContent="Processando...";document.getElementById("aProg").style.display="block";setP("a",10,"Conectando a Asksuite...","Buscando leads");try{var r=await fetch("/buscar",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({companyId:"porto-de-galinhas-praia-hotel",dateInit:dateInit,dateEnd:dateEnd,pageNumber:pageNum,pageSize:pageSize})});var data=await r.json();var leads=data.list||[];if(!leads.length){setP("a",100,"Nenhuma conversa encontrada","Tente outro periodo");btn.disabled=false;btn.textContent="Buscar e auditar";return;}setP("a",30,leads.length+" leads encontrados!","Auditando com IA...");aAud=[];for(var i=0;i<leads.length;i++){setP("a",Math.round(30+(i/leads.length)*65),"Auditando "+(i+1)+" de "+leads.length+"...","Lead: "+(leads[i].name||leads[i].id));try{var ar=await fetch("/auditar",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({lead:leads[i]})});var resultado=await ar.json();if(resultado.scoreGeral){resultado.meta={nome:leads[i].name||"Cliente",atendente:leads[i].attendant||null,data:leads[i].updatedAt?new Date(leads[i].updatedAt).toLocaleDateString("pt-BR"):""};aAud.push(resultado);renderLista(aAud,"a");}}catch(e){console.error(e);}await new Promise(function(r){setTimeout(r,300);});}setP("a",100,"Auditoria concluida! "+aAud.length+" leads","");}catch(e){setP("a",0,"Erro: "+e.message,"");}btn.disabled=false;btn.textContent="Buscar e auditar";}');
-  html.push('var hoje=new Date();document.getElementById("gDateEnd").value=hoje.toISOString().split("T")[0];document.getElementById("aDateEnd").value=hoje.toISOString().split("T")[0];');
+  html.push('async function buscarGHL(){var dateInit=document.getElementById("gDateInit").value;var dateEnd=document.getElementById("gDateEnd").value;var limit=parseInt(document.getElementById("gLimit").value)||5;var btn=document.getElementById("gBtn");btn.disabled=true;btn.textContent="Processando...";document.getElementById("gProg").style.display="block";setP("g",10,"Conectando ao GHL...","Buscando conversas");try{var body={locationId:"mhlYful3Ik0RINNWJ6FO",limit:limit};if(dateInit)body.startDate=new Date(dateInit).getTime();if(dateEnd)body.endDate=new Date(dateEnd+"T23:59:59").getTime();var r=await fetch("/ghl/conversas",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});var data=await r.json();var convs=data.conversations||[];console.log("Conversas encontradas:",convs.length);if(!convs.length){setP("g",100,"Nenhuma conversa encontrada","");btn.disabled=false;btn.textContent="Buscar e auditar";return;}setP("g",30,convs.length+" conversas encontradas!","Auditando...");gAud=[];for(var i=0;i<convs.length;i++){setP("g",Math.round(30+(i/convs.length)*65),"Auditando "+(i+1)+" de "+convs.length+"...","");try{var mr=await fetch("/ghl/mensagens",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({conversationId:convs[i].id})});var md=await mr.json();var msgs=(md.messages&&md.messages.messages)||md.messages||[];var historico=msgs.slice(0,10).map(function(m){return(m.direction==="inbound"?"C":"A")+": "+(m.body||"[midia]").substring(0,100);}).join("\\n");var ar=await fetch("/ghl/auditar",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({conversa:convs[i],historico:historico})});var resultado=await ar.json();console.log("Resultado auditoria",i,":",JSON.stringify(resultado).substring(0,200));resultado.meta={nome:convs[i].contactName||"Contato",atendente:convs[i].assignedTo||null,data:convs[i].lastMessageDate?new Date(convs[i].lastMessageDate).toLocaleDateString("pt-BR"):""};gAud.push(resultado);renderLista(gAud,"g");}catch(e){console.error("Erro conv",i,":",e.message);}await new Promise(function(r){setTimeout(r,800);});}setP("g",100,"Concluido! "+gAud.length+" auditadas","");}catch(e){setP("g",0,"Erro: "+e.message,"");console.error(e);}btn.disabled=false;btn.textContent="Buscar e auditar";}');
+  html.push('async function buscarASK(){var dateInit=document.getElementById("aDateInit").value;var dateEnd=document.getElementById("aDateEnd").value;var pageSize=parseInt(document.getElementById("aPageSize").value)||20;var pageNum=parseInt(document.getElementById("aPageNum").value)||1;var btn=document.getElementById("aBtn");btn.disabled=true;btn.textContent="Processando...";document.getElementById("aProg").style.display="block";setP("a",10,"Conectando...","Buscando leads");try{var r=await fetch("/buscar",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({companyId:"porto-de-galinhas-praia-hotel",dateInit:dateInit,dateEnd:dateEnd,pageNumber:pageNum,pageSize:pageSize})});var data=await r.json();var leads=data.list||[];if(!leads.length){setP("a",100,"Nenhum lead encontrado","");btn.disabled=false;btn.textContent="Buscar e auditar";return;}setP("a",30,leads.length+" leads!","Auditando...");aAud=[];for(var i=0;i<leads.length;i++){setP("a",Math.round(30+(i/leads.length)*65),"Auditando "+(i+1)+" de "+leads.length+"...","");try{var ar=await fetch("/auditar",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({lead:leads[i]})});var resultado=await ar.json();resultado.meta={nome:leads[i].name||"Cliente",atendente:leads[i].attendant||null,data:leads[i].updatedAt?new Date(leads[i].updatedAt).toLocaleDateString("pt-BR"):""};aAud.push(resultado);renderLista(aAud,"a");}catch(e){console.error(e);}await new Promise(function(r){setTimeout(r,300);});}setP("a",100,"Concluido! "+aAud.length+" auditados","");}catch(e){setP("a",0,"Erro: "+e.message,"");}btn.disabled=false;btn.textContent="Buscar e auditar";}');
   html.push('</script></body></html>');
   res.send(html.join('\n'));
 });
